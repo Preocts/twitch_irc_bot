@@ -23,7 +23,7 @@ class IRCConnect:
         self, nickname: str, password: str, server_url: str, port: int
     ) -> None:
         """ IRC connection """
-        self.read_messages = queue.Queue(maxsize=READ_QUEUE_MAX_SIZE)
+        self.read_messages: queue.Queue = queue.Queue(maxsize=READ_QUEUE_MAX_SIZE)
         self.__socket_reader = threading.Thread(target=self.__socket_read_loop)
         self.__thread_reader_flag = False
         self.__socket_open = False
@@ -35,12 +35,18 @@ class IRCConnect:
         }
         self.irc_client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
+    @property
+    def connected(self) -> bool:
+        """ Are we connected? """
+        return self.__socket_open
+
     def auth_connection(self):
+        """ Connect and authenticate """
         self.logger.info("Connecting and auth'ing to IRC server...")
         self.irc_client.connect((self.__cfg["url"], self.__cfg["port"]))
 
         self.logger.info("Connection established, authenticating...")
-        self._send_raw(f"PASS {self.__cfg['password']}")
+        self._send_raw(f"PASS {self.__cfg['password']}", False)
         self.logger.info("PASS sent...")
         self._send_raw(f"NICK {self.__cfg['nick']}")
         self.logger.info("NICK sent...")
@@ -50,9 +56,20 @@ class IRCConnect:
         self.logger.info("USER sent...")
         self.__socket_open = True
 
-    def _send_raw(self, message: str) -> None:
+    def send(self, message: str) -> None:
+        """ Sends a message """
+        self._send_raw(message)
+
+    def _send_raw(self, message: str, log: bool = True) -> None:
         """ Sends raw bytes """
-        self.irc_client.send(bytes(message + "\r\n", "UTF-8"))
+        self.logger.debug("Send message: %s", message if log else "***")
+        while True:
+            try:
+                self.irc_client.send(bytes(message + "\r\n", "UTF-8"))
+                break
+            except BlockingIOError:
+                logging.debug("Retrying send...")
+                time.sleep(0.25)
 
     def start_reader(self) -> None:
         """ Starts the socket reader thread """
@@ -64,7 +81,7 @@ class IRCConnect:
         self.__thread_reader_flag = False
         self.__socket_reader.join()
 
-    def __socket_read_loop(self, read_size: int = 12) -> None:
+    def __socket_read_loop(self, read_size: int = 512) -> None:
         """ Reads open socket, drops messages in queue, exits on socket close """
         self.logger.debug("Enter socket read loop. read_size: %s", read_size)
         overflow = b""
@@ -101,9 +118,7 @@ class IRCConnect:
         overflow = message_lines.pop() if not message_string.endswith("\n") else ""
 
         for line in message_lines:
-            print(r"QUEUE: {}".format(line))
             self.read_messages.put(line)
-        print(f"Overflow: {overflow}")
         return overflow.encode("UTF-8")
 
     def join_channel(self, channel_name: str) -> None:
@@ -125,9 +140,13 @@ def main() -> None:
     client.auth_connection()
     # client.join_channel("#preocts")
     client.start_reader()
-    while not input(""):
+    while client.connected:
         while not client.read_messages.empty():
-            print(client.read_messages.get())
+            message: str = client.read_messages.get()
+            print(message)
+            if message.startswith("PING"):
+                print("PONG!")
+                client.send("PONG :" + message.split(":", 1)[1])
     client.stop_reader()
     client.irc_client.close()
 
