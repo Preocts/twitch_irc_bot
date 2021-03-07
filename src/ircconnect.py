@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-""" Let's build-a-bot """
+""" IRC Abstract layer designed for TwitchTV IRC chat
+
+Author: Preocts <preocts@preocts.com>
+"""
 import time
 import queue
 import socket
@@ -11,7 +14,16 @@ import threading
 from src.loadenv import LoadEnv
 
 
+# TODO (preocts): Config layer for these settings
 READ_QUEUE_MAX_SIZE = 1_000
+WRITE_QUEUE_MAX_SIZE = 1_000
+
+# 500 character max including message tags
+MAX_SEND_CHAR_SIZE = 500
+
+# Max 15 messages in 30 seconds
+WRITE_THROTTLE_MSG_COUNT = 15
+WRITE_THROTTLE_SEC_SPAN = 30
 
 
 class IRCConnect:
@@ -24,7 +36,9 @@ class IRCConnect:
     ) -> None:
         """ IRC connection """
         self.__read_queue: queue.Queue = queue.Queue(maxsize=READ_QUEUE_MAX_SIZE)
+        self.__write_queue: queue.Queue = queue.Queue(maxsize=WRITE_QUEUE_MAX_SIZE)
         self.__socket_reader = threading.Thread(target=self.__socket_read_loop)
+        self.__socket_writer = threading.Thread(target=self.__socket_write_loop)
         self.__socket_open = False
         self.__cfg = {
             "nick": nickname,
@@ -56,9 +70,9 @@ class IRCConnect:
         self.irc_client.setblocking(False)
         self.logger.info("Connection established, authenticating...")
 
-        self.send_to_server(f"PASS {self.__cfg['password']}", False)
-        self.send_to_server(f"NICK {self.__cfg['nick']}")
-        self.send_to_server(
+        self.__send(f"PASS {self.__cfg['password']}", False)
+        self.__send(f"NICK {self.__cfg['nick']}")
+        self.__send(
             f"USER {self.__cfg['nick']} {self.__cfg['nick']} {self.__cfg['nick']}"
         )
         self.__socket_open = True
@@ -68,6 +82,7 @@ class IRCConnect:
         self.auth_connection()
         if self.connected:
             self.__socket_reader.start()
+            self.__socket_writer.start()
 
     def disconnect(self) -> None:
         """ Closes connection and stops threads. Blocking until threads stop """
@@ -75,10 +90,16 @@ class IRCConnect:
         self.irc_client.close()
         self.__socket_open = False
         self.__socket_reader.join()
+        self.__socket_writer.join()
 
-    def send_to_server(self, message: str, show_in_logs: bool = True) -> None:
-        """ Sends a message to the server """
-        self.__safe_send(message, show_in_logs)
+    def send_to_server(self, message: str) -> str:
+        """ Sends a message to the server, returns queued message """
+        self.__write_queue.put(message[:MAX_SEND_CHAR_SIZE], block=True, timeout=0.5)
+        return message[:MAX_SEND_CHAR_SIZE]
+
+    def join_channel(self, channel_name: str) -> None:
+        """ Join channel """
+        self.send_to_server(f"JOIN {channel_name}")
 
     def __socket_read_loop(self, read_size: int = 512) -> None:
         """ Reads open socket, drops messages in queue, exits on socket close """
@@ -89,7 +110,7 @@ class IRCConnect:
             if not read_list:
                 continue
 
-            read_seg = self.__safe_read(read_size)
+            read_seg = self.__read(read_size)
 
             if read_seg:
                 read_seg = remaining_seg + read_seg
@@ -97,13 +118,25 @@ class IRCConnect:
             else:
                 self.logger.warning("Read: Socket is closed!")
                 self.__socket_open = False
+        self.logger.debug("Exit socket read loop.")
 
-    def __safe_send(self, message: str, log: bool) -> None:
+    def __socket_write_loop(self) -> None:
+        """ Writes queue'ed messages to open socket, exits on socket close """
+        self.logger.debug("Enter socket write loop.")
+        while self.__socket_open:
+            if self.__write_queue.empty():
+                continue
+            message = self.__write_queue.get()
+            self.__send(message[:MAX_SEND_CHAR_SIZE])
+            # TODO: flood control
+        self.logger.debug("Exit socket write loop")
+
+    def __send(self, message: str, log: bool = True) -> None:
         """ Sends raw bytes, retries if blocked """
         self.logger.debug("Send message: %s", message if log else "***")
         while True:
             try:
-                self.irc_client.send(bytes(message + "\r\n", "UTF-8"))
+                self.irc_client.send(f"{message}\r\n".encode("UTF-8"))
                 break
             except BlockingIOError:
                 self.logger.debug("Send blocked, retry...")
@@ -111,7 +144,7 @@ class IRCConnect:
                 self.logger.error("Send failed: %s", err)
                 self.__socket_open = False
 
-    def __safe_read(self, read_size: int) -> bytes:
+    def __read(self, read_size: int) -> bytes:
         """ Reads raw btyes, retries if blocked """
         while True:
             try:
@@ -135,10 +168,6 @@ class IRCConnect:
             if line:
                 self.__read_queue.put(line, block=False, timeout=0.5)
         return overflow.encode("UTF-8")
-
-    def join_channel(self, channel_name: str) -> None:
-        """ Join channel """
-        self.send_to_server(f"JOIN {channel_name}")
 
 
 def main() -> None:
