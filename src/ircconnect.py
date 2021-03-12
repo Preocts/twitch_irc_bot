@@ -86,11 +86,13 @@ class IRCConnect:
 
     def disconnect(self) -> None:
         """ Closes connection and stops threads. Blocking until threads stop """
-        self.irc_client.shutdown(socket.SHUT_RDWR)
-        self.irc_client.close()
-        self.__socket_open = False
-        self.__socket_reader.join()
-        self.__socket_writer.join()
+        try:
+            self.irc_client.shutdown(socket.SHUT_RDWR)
+            self.irc_client.close()
+        finally:
+            self.__socket_open = False
+            self.__socket_reader.join()
+            self.__socket_writer.join()
 
     def send_to_server(self, message: str) -> str:
         """ Sends a message to the server, returns queued message """
@@ -168,31 +170,3 @@ class IRCConnect:
             if line:
                 self.__read_queue.put(line, block=False, timeout=0.5)
         return overflow.encode("UTF-8")
-
-
-def main() -> None:
-    """ Main yo """
-    secrets = LoadEnv()
-    secrets.load()
-    client = IRCConnect(
-        secrets.get("BOT_NAME"),
-        secrets.get("BOT_OAUTH_TWITCH"),
-        secrets.get("SERVER"),
-        int(secrets.get("PORT")),
-    )
-    client.connect()
-    time.sleep(5)
-    client.join_channel("#preocts")
-    while client.connected:
-        while not client.read_queue_empty:
-            message: str = client.read_next
-            print(f"CONSOLE OUT >>> {message}")
-            if message.startswith("PING"):
-                print("PONG!")
-                # client.send("PONG :" + message.split(":", 1)[1])
-    client.disconnect()
-
-
-if __name__ == "__main__":
-    logging.basicConfig(level="DEBUG")
-    main()
