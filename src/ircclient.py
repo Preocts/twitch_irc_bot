@@ -23,7 +23,7 @@ WRITE_THROTTLE_MSG_COUNT = 20
 WRITE_THROTTLE_SEC_SPAN = 30
 
 
-class IRCConnect:
+class IRCClient:
     """ Connection layer to IRC """
 
     logger = logging.getLogger(__name__)

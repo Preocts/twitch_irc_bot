@@ -8,14 +8,14 @@ import time
 import logging
 
 from src.loadenv import LoadEnv
-from src.ircconnect import IRCConnect
+from src.ircclient import IRCClient
 
 
 def main() -> None:
     """ Main yo """
     secrets = LoadEnv()
     secrets.load()
-    client = IRCConnect(
+    client = IRCClient(
         secrets.get("BOT_NAME"),
         secrets.get("BOT_OAUTH_TWITCH"),
         secrets.get("SERVER"),
