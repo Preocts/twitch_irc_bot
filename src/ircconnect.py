@@ -4,14 +4,11 @@
 
 Author: Preocts <preocts@preocts.com>
 """
-import time
 import queue
 import socket
 import select
 import logging
 import threading
-
-from src.loadenv import LoadEnv
 
 
 # TODO (preocts): Config layer for these settings
@@ -21,8 +18,8 @@ WRITE_QUEUE_MAX_SIZE = 1_000
 # 500 character max including message tags
 MAX_SEND_CHAR_SIZE = 500
 
-# Max 15 messages in 30 seconds
-WRITE_THROTTLE_MSG_COUNT = 15
+# Max 20 messages in 30 seconds
+WRITE_THROTTLE_MSG_COUNT = 20
 WRITE_THROTTLE_SEC_SPAN = 30
 
 
