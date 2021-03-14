@@ -23,7 +23,7 @@ def main() -> None:
     )
     client.connect()
     time.sleep(5)
-    client.join_channel("#preocts")
+    client.join_channel("#travelcast_bot")
     while client.connected:
         while not client.read_queue_empty:
             message: str = client.read_next
