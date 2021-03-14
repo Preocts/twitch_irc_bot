@@ -34,7 +34,7 @@ class DecayingCounter:
 
     def __clean_group(self, group: str) -> None:
         """ Removes expired items from group """
-        while len(self.__groups.get(group, [])):
+        while self.__groups.get(group, []):
             if (datetime.datetime.now() - self.__groups[group][-1]) > self.life_span:
                 self.__groups[group].pop()
             else:
