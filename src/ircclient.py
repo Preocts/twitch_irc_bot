@@ -91,6 +91,7 @@ class IRCClient:
     def disconnect(self) -> None:
         """ Closes connection and stops threads. Blocking until threads stop """
         try:
+            # TODO (preocts): OSError: [Errno 107] Transport endpoint is not connected
             self.irc_client.shutdown(socket.SHUT_RDWR)
             self.irc_client.close()
         finally:
@@ -98,13 +99,13 @@ class IRCClient:
             self.__socket_reader.join()
             self.__socket_writer.join()
 
-    def send_to_server(self, message: Message) -> None:
+    def send_to_server(self, message: str) -> None:
         """ Sends a message to the server, returns queued message """
-        self.__write_queue.put(message, block=True, timeout=0.5)
+        self.__write_queue.put(Message.from_string(message), block=True, timeout=0.5)
 
     def join_channel(self, channel_name: str) -> None:
         """ Join channel """
-        self.send_to_server(Message.from_string(f"JOIN {channel_name}"))
+        self.send_to_server(f"JOIN {channel_name}")
 
     def __socket_read_loop(self, read_size: int = 512) -> None:
         """ Reads open socket, drops messages in queue, exits on socket close """
@@ -115,7 +116,11 @@ class IRCClient:
             if not read_list:
                 continue
 
-            read_seg = self.__read(read_size)
+            try:
+                read_seg = self.__read(read_size)
+            except OSError as err:
+                self.logger.error(err)
+                break
 
             if read_seg:
                 read_seg = remaining_seg + read_seg
@@ -145,7 +150,7 @@ class IRCClient:
                 break
             except BlockingIOError:
                 self.logger.debug("Send blocked, retry...")
-            except ConnectionResetError as err:
+            except (ConnectionResetError, OSError) as err:
                 self.logger.error("Send failed: %s", err)
                 self.__socket_open = False
 

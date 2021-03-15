@@ -4,11 +4,44 @@
 
 Author: Preocts <preocts@preocts.com>
 """
-import time
 import logging
 
 from src.loadenv import LoadEnv
 from src.ircclient import IRCClient
+
+
+# TODO (preocts): We need a single loop that emits flags that alters behavior
+
+
+def connect_to_twitch(client: IRCClient) -> None:
+    """ Runs connection steps, authentication, and loads MOTD """
+    seen_motd = False
+    client.connect()
+    while client.connected and not seen_motd:
+        # Login loop, wait for MOTD
+        while not client.read_queue_empty:
+            message = client.read_next
+            print(f"RAW OUT >>> {message.message}")
+            if message.command == "376":
+                print("Seen MOTD")
+                seen_motd = True
+
+
+def sit_and_spin(client: IRCClient) -> None:
+    """ Main process loop? """
+    run_loop = True
+    while client.connected and not run_loop:
+        # Getting things to work is so cludgy
+        while not client.read_queue_empty:
+            message = client.read_next
+            print(f"RAW OUT >>> {message.message}")
+            if message.command == "PRIVMSG" and "travelcast_bot" in message.params:
+                if message.content == "!exit":
+                    print("Shutdown!")
+                    run_loop = True
+            if message.command == "PING":
+                print("PONG!")
+                client.send_to_server(f"PONG :{message.trailing}")
 
 
 def main() -> None:
@@ -21,17 +54,9 @@ def main() -> None:
         secrets.get("SERVER"),
         int(secrets.get("PORT")),
     )
-    client.connect()
-    time.sleep(5)
+    connect_to_twitch(client)
     client.join_channel("#travelcast_bot")
-    while client.connected:
-        while not client.read_queue_empty:
-            message = client.read_next
-            print(f"RAW OUT >>> {message.message}")
-            print(f"TERM OUT >>> {message.content}")
-            if message.command == "PING":
-                print("PONG!")
-                # client.send("PONG :" + message.split(":", 1)[1])
+    sit_and_spin(client)
     client.disconnect()
 
 
