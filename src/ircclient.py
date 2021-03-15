@@ -4,12 +4,15 @@
 
 Author: Preocts <preocts@preocts.com>
 """
+from __future__ import annotations
+
 import queue
 import socket
 import select
 import logging
 import threading
 
+from src.model.message import Message
 
 # TODO (preocts): Config layer for these settings
 READ_QUEUE_MAX_SIZE = 1_000
@@ -32,8 +35,12 @@ class IRCClient:
         self, nickname: str, password: str, server_url: str, port: int
     ) -> None:
         """ IRC connection """
-        self.__read_queue: queue.Queue = queue.Queue(maxsize=READ_QUEUE_MAX_SIZE)
-        self.__write_queue: queue.Queue = queue.Queue(maxsize=WRITE_QUEUE_MAX_SIZE)
+        self.__read_queue: queue.Queue[Message] = queue.Queue(
+            maxsize=READ_QUEUE_MAX_SIZE
+        )
+        self.__write_queue: queue.Queue[Message] = queue.Queue(
+            maxsize=WRITE_QUEUE_MAX_SIZE
+        )
         self.__socket_reader = threading.Thread(target=self.__socket_read_loop)
         self.__socket_writer = threading.Thread(target=self.__socket_write_loop)
         self.__socket_open = False
@@ -56,7 +63,7 @@ class IRCClient:
         return self.__read_queue.empty()
 
     @property
-    def read_next(self) -> str:
+    def read_next(self) -> Message:
         """ Returns next message in queue, does not check if queue is empty """
         return self.__read_queue.get(block=True, timeout=0.5)
 
@@ -91,14 +98,13 @@ class IRCClient:
             self.__socket_reader.join()
             self.__socket_writer.join()
 
-    def send_to_server(self, message: str) -> str:
+    def send_to_server(self, message: Message) -> None:
         """ Sends a message to the server, returns queued message """
-        self.__write_queue.put(message[:MAX_SEND_CHAR_SIZE], block=True, timeout=0.5)
-        return message[:MAX_SEND_CHAR_SIZE]
+        self.__write_queue.put(message, block=True, timeout=0.5)
 
     def join_channel(self, channel_name: str) -> None:
         """ Join channel """
-        self.send_to_server(f"JOIN {channel_name}")
+        self.send_to_server(Message.from_string(f"JOIN {channel_name}"))
 
     def __socket_read_loop(self, read_size: int = 512) -> None:
         """ Reads open socket, drops messages in queue, exits on socket close """
@@ -126,7 +132,7 @@ class IRCClient:
             if self.__write_queue.empty():
                 continue
             message = self.__write_queue.get()
-            self.__send(message[:MAX_SEND_CHAR_SIZE])
+            self.__send(message.message)
             # TODO: flood control
         self.logger.debug("Exit socket write loop")
 
@@ -161,9 +167,11 @@ class IRCClient:
         """ Add lines to read queue, returns overflow """
         message_string = read_seg.decode("UTF-8")
         message_lines = message_string.split("\n")
-        overflow = message_lines.pop() if not message_string.endswith("\n") else ""
+        overflow = message_lines.pop() if not message_string.endswith("\r\n") else ""
 
         for line in message_lines:
             if line:
-                self.__read_queue.put(line, block=False, timeout=0.5)
+                self.__read_queue.put(
+                    Message.from_string(line), block=False, timeout=0.5
+                )
         return overflow.encode("UTF-8")

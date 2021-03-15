@@ -42,7 +42,7 @@ class Message(NamedTuple):
     @property
     def content(self) -> str:
         """ String return message content (trailing) """
-        return " ".join(self.trailing) if self.trailing else ""
+        return (" ".join(self.trailing)).lstrip(":") if self.trailing else ""
 
     @classmethod
     def from_string(cls, message: str) -> Message:

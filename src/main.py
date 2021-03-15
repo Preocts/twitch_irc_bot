@@ -26,9 +26,10 @@ def main() -> None:
     client.join_channel("#travelcast_bot")
     while client.connected:
         while not client.read_queue_empty:
-            message: str = client.read_next
-            print(f"CONSOLE OUT >>> {message}")
-            if message.startswith("PING"):
+            message = client.read_next
+            print(f"RAW OUT >>> {message.message}")
+            print(f"TERM OUT >>> {message.content}")
+            if message.command == "PING":
                 print("PONG!")
                 # client.send("PONG :" + message.split(":", 1)[1])
     client.disconnect()
