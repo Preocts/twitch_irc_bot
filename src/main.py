@@ -19,8 +19,8 @@ def connect_to_twitch(client: IRCClient) -> None:
     client.connect()
     while client.connected and not seen_motd:
         # Login loop, wait for MOTD
-        while not client.read_queue_empty:
-            message = client.read_next
+        while not client.is_read_queue_empty:
+            message = client.read_next()
             print(f"RAW OUT >>> {message.message}")
             if message.command == "376":
                 print("Seen MOTD")
@@ -30,18 +30,18 @@ def connect_to_twitch(client: IRCClient) -> None:
 def sit_and_spin(client: IRCClient) -> None:
     """ Main process loop? """
     run_loop = True
-    while client.connected and not run_loop:
+    while client.connected and run_loop:
         # Getting things to work is so cludgy
-        while not client.read_queue_empty:
-            message = client.read_next
+        while not client.is_read_queue_empty:
+            message = client.read_next()
             print(f"RAW OUT >>> {message.message}")
             if message.command == "PRIVMSG" and "travelcast_bot" in message.params:
                 if message.content == "!exit":
                     print("Shutdown!")
-                    run_loop = True
+                    run_loop = False
             if message.command == "PING":
                 print("PONG!")
-                client.send_to_server(f"PONG :{message.trailing}")
+                client.send_to_server(f"PONG :{message.content}")
 
 
 def main() -> None:

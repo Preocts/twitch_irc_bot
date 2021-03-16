@@ -6,11 +6,11 @@ Author: Preocts <preocts@preocts.com>
 """
 from __future__ import annotations
 
-import queue
 import socket
 import select
 import logging
 import threading
+from queue import Queue
 
 from src.model.message import Message
 
@@ -35,12 +35,8 @@ class IRCClient:
         self, nickname: str, password: str, server_url: str, port: int
     ) -> None:
         """ IRC connection """
-        self.__read_queue: queue.Queue[Message] = queue.Queue(
-            maxsize=READ_QUEUE_MAX_SIZE
-        )
-        self.__write_queue: queue.Queue[Message] = queue.Queue(
-            maxsize=WRITE_QUEUE_MAX_SIZE
-        )
+        self.__read_queue: Queue[Message] = Queue(maxsize=READ_QUEUE_MAX_SIZE)
+        self.__write_queue: Queue[Message] = Queue(maxsize=WRITE_QUEUE_MAX_SIZE)
         self.__socket_reader = threading.Thread(target=self.__socket_read_loop)
         self.__socket_writer = threading.Thread(target=self.__socket_write_loop)
         self.__socket_open = False
@@ -58,38 +54,41 @@ class IRCClient:
         return self.__socket_open
 
     @property
-    def read_queue_empty(self) -> bool:
+    def is_read_queue_empty(self) -> bool:
         """ Returns True if read queue is empty """
         return self.__read_queue.empty()
 
-    @property
     def read_next(self) -> Message:
         """ Returns next message in queue, does not check if queue is empty """
         return self.__read_queue.get(block=True, timeout=0.5)
 
-    def auth_connection(self):
-        """ Connect and authenticate """
-        self.logger.info("Connecting and auth'ing to IRC server...")
-        self.irc_client.connect((self.__cfg["url"], self.__cfg["port"]))
-        self.irc_client.setblocking(False)
-        self.logger.info("Connection established, authenticating...")
-
-        self.__send(f"PASS {self.__cfg['password']}", False)
-        self.__send(f"NICK {self.__cfg['nick']}")
-        self.__send(
-            f"USER {self.__cfg['nick']} {self.__cfg['nick']} {self.__cfg['nick']}"
-        )
-        self.__socket_open = True
-
     def connect(self) -> None:
         """ Connects to IRC and starts read/write threads. Blocking until complete """
-        self.auth_connection()
+        self.__create_socket()
         if self.connected:
             self.__socket_reader.start()
             self.__socket_writer.start()
+        self.__authenticate()
+
+    def __create_socket(self) -> None:
+        """ Connect socket """
+        self.logger.info("Connecting to IRC server...")
+        self.irc_client.connect((self.__cfg["url"], self.__cfg["port"]))
+        self.irc_client.setblocking(False)
+        self.logger.info("Connection established.")
+        self.__socket_open = True
+
+    def __authenticate(self) -> None:
+        """ Queue authentication commands """
+        self.send_to_server(f"PASS {self.__cfg['password']}")
+        self.send_to_server(f"NICK {self.__cfg['nick']}")
+        self.send_to_server(
+            f"USER {self.__cfg['nick']} {self.__cfg['nick']} {self.__cfg['nick']}"
+        )
 
     def disconnect(self) -> None:
         """ Closes connection and stops threads. Blocking until threads stop """
+        print("DISCONNECT")
         try:
             # TODO (preocts): OSError: [Errno 107] Transport endpoint is not connected
             self.irc_client.shutdown(socket.SHUT_RDWR)
@@ -119,8 +118,8 @@ class IRCClient:
             try:
                 read_seg = self.__read(read_size)
             except OSError as err:
-                self.logger.error(err)
-                break
+                self.logger.error("Read error: %s, %s", err, self.__socket_open)
+                continue
 
             if read_seg:
                 read_seg = remaining_seg + read_seg
@@ -141,13 +140,20 @@ class IRCClient:
             # TODO: flood control
         self.logger.debug("Exit socket write loop")
 
-    def __send(self, message: str, log: bool = True) -> None:
+    def __send(self, message: str) -> None:
         """ Sends raw bytes, retries if blocked """
-        self.logger.debug("Send message: %s", message if log else "***")
-        while True:
+        self.logger.debug(
+            "Send message: %s", message if "PASS" not in message else "PASS ***"
+        )
+        send_msg = f"{message}\r\n".encode("UTF-8")
+        total_sent = 0
+        while total_sent < len(send_msg) and self.__socket_open:
             try:
-                self.irc_client.send(f"{message}\r\n".encode("UTF-8"))
-                break
+                sent_size = self.irc_client.send(send_msg)
+                if not sent_size:
+                    self.logger.warning("Write: Socket is closed!")
+                    self.__socket_open = False
+                total_sent += sent_size
             except BlockingIOError:
                 self.logger.debug("Send blocked, retry...")
             except (ConnectionResetError, OSError) as err:
