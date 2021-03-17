@@ -13,35 +13,25 @@ from src.ircclient import IRCClient
 # TODO (preocts): We need a single loop that emits flags that alters behavior
 
 
-def connect_to_twitch(client: IRCClient) -> None:
-    """ Runs connection steps, authentication, and loads MOTD """
-    seen_motd = False
-    client.connect()
-    while client.connected and not seen_motd:
-        # Login loop, wait for MOTD
-        while not client.is_read_queue_empty:
-            message = client.read_next()
-            print(f"RAW OUT >>> {message.message}")
-            if message.command == "376":
-                print("Seen MOTD")
-                seen_motd = True
-
-
 def sit_and_spin(client: IRCClient) -> None:
     """ Main process loop? """
-    run_loop = True
-    while client.connected and run_loop:
-        # Getting things to work is so cludgy
+    client.connect()
+    while client.connected:
         while not client.is_read_queue_empty:
             message = client.read_next()
             print(f"RAW OUT >>> {message.message}")
-            if message.command == "PRIVMSG" and "travelcast_bot" in message.params:
-                if message.content == "!exit":
-                    print("Shutdown!")
-                    run_loop = False
+            if client.write_lock:
+                client.write_lock = message.command == "376"
+                if not client.write_lock:
+                    client.join_channel("#travelcast_bot")
+                continue
             if message.command == "PING":
                 print("PONG!")
                 client.send_to_server(f"PONG :{message.content}")
+            if message.command == "PRIVMSG" and "travelcast_bot" in message.params:
+                if message.content == "!exit":
+                    print("Shutdown!")
+                    client.disconnect()
 
 
 def main() -> None:
@@ -54,7 +44,6 @@ def main() -> None:
         secrets.get("SERVER"),
         int(secrets.get("PORT")),
     )
-    connect_to_twitch(client)
     client.join_channel("#travelcast_bot")
     sit_and_spin(client)
     client.disconnect()

@@ -47,6 +47,7 @@ class IRCClient:
             "port": port,
         }
         self.irc_client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.write_lock: bool = True
 
     @property
     def connected(self) -> bool:
@@ -88,11 +89,11 @@ class IRCClient:
 
     def disconnect(self) -> None:
         """ Closes connection and stops threads. Blocking until threads stop """
-        print("DISCONNECT")
         try:
-            # TODO (preocts): OSError: [Errno 107] Transport endpoint is not connected
             self.irc_client.shutdown(socket.SHUT_RDWR)
             self.irc_client.close()
+        except OSError as err:
+            self.logger.error(err)
         finally:
             self.__socket_open = False
             self.__socket_reader.join()
@@ -149,7 +150,7 @@ class IRCClient:
         total_sent = 0
         while total_sent < len(send_msg) and self.__socket_open:
             try:
-                sent_size = self.irc_client.send(send_msg)
+                sent_size = self.irc_client.send(send_msg[total_sent:])
                 if not sent_size:
                     self.logger.warning("Write: Socket is closed!")
                     self.__socket_open = False
