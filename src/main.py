@@ -20,11 +20,6 @@ def sit_and_spin(client: IRCClient) -> None:
         while not client.is_read_queue_empty:
             message = client.read_next()
             print(f"RAW OUT >>> {message.message}")
-            if client.write_lock:
-                client.write_lock = message.command == "376"
-                if not client.write_lock:
-                    client.join_channel("#travelcast_bot")
-                continue
             if message.command == "PING":
                 print("PONG!")
                 client.send_to_server(f"PONG :{message.content}")

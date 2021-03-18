@@ -14,7 +14,7 @@ def test_basic_parse() -> None:
     assert message.prefix == ":tmi.twitch.tv"
     assert message.command == "372"
     assert message.params == "my_bot"
-    assert message.content == ":You are in a maze of twisty passages."
+    assert message.content == "You are in a maze of twisty passages."
 
 
 def test_no_prefix_no_middle() -> None:
@@ -23,7 +23,8 @@ def test_no_prefix_no_middle() -> None:
     message = Message.from_string(mock)
     assert message.prefix is None
     assert message.middle is None
-    assert message.content == ":tmi.twitch.tv callback"
+    assert message.trailing == (":tmi.twitch.tv", "callback")
+    assert message.content == "tmi.twitch.tv callback"
 
 
 def test_no_trailing() -> None:
