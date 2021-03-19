@@ -61,10 +61,6 @@ class IRCClient:
         """ Returns True if read queue is empty """
         return self.__read_queue.empty()
 
-    def read_next(self) -> Message:
-        """ Returns next message in queue, does not check if queue is empty """
-        return self.__read_queue.get(block=True, timeout=0.25)
-
     def connect(self) -> None:
         """ Connects to IRC and starts read/write threads. Blocking until complete """
         self.__create_socket()
@@ -197,8 +193,20 @@ class IRCClient:
         for line in message_lines:
             if line:
                 msg = Message.from_string(line)
-                self.__read_queue.put(msg)
+                if msg.command == "PING":
+                    self.logger.info("PING? PONG!")
+                    self.send_to_server(f"PONG :{msg.content}")
                 if self.write_lock:
                     self.write_lock = msg.command == "376"
-                continue
+                self.__read_queue.put(msg)
         return overflow.encode("UTF-8")
+
+    def start(self, *args) -> None:
+        """ Main process loop? """
+        self.connect()
+        while self.connected:
+            while self.is_read_queue_empty:
+                continue
+            message = self.__read_queue.get(block=True, timeout=0.25)
+            for arg in args:
+                arg(message)
