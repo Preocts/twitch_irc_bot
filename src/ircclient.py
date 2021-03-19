@@ -147,7 +147,7 @@ class IRCClient:
                 if queue_name != "SYS" and self.write_lock:
                     continue
                 try:
-                    message = writequeue.get()
+                    message = writequeue.get(block=True, timeout=0.25)
                 except Empty:
                     continue
                 # TODO: flood control

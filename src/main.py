@@ -10,23 +10,21 @@ from src.loadenv import LoadEnv
 from src.ircclient import IRCClient
 
 
-# TODO (preocts): We need a single loop that emits flags that alters behavior
-
-
 def sit_and_spin(client: IRCClient) -> None:
     """ Main process loop? """
     client.connect()
     while client.connected:
-        while not client.is_read_queue_empty:
-            message = client.read_next()
-            print(f"RAW OUT >>> {message.message}")
-            if message.command == "PING":
-                print("PONG!")
-                client.send_to_server(f"PONG :{message.content}")
-            if message.command == "PRIVMSG" and "travelcast_bot" in message.params:
-                if message.content == "!exit":
-                    print("Shutdown!")
-                    client.disconnect()
+        while client.is_read_queue_empty:
+            continue
+        message = client.read_next()
+        print(f"RAW OUT >>> {message.message}")
+        if message.command == "PING":
+            print("PONG!")
+            client.send_to_server(f"PONG :{message.content}")
+        if message.command == "PRIVMSG" and "travelcast_bot" in message.params:
+            if message.content == "!exit":
+                print("Shutdown!")
+                client.disconnect()
 
 
 def main() -> None:
