@@ -45,17 +45,30 @@ class IRCClient:
     logger = logging.getLogger(__name__)
 
     def __init__(
-        self, nickname: str, password: str, server_url: str, port: int
+        self,
+        nickname: str,
+        password: Optional[str],
+        server_url: str,
+        port: int,
+        wait_for_motd: bool = True,
     ) -> None:
-        """ Create an IRC Client object """
+        """Create an IRC Client object
+
+        Args:
+            nickname: Name to use on the server
+            pasasword: Password if used, set None to bypass
+            server_url: IRC host server url
+            port: Host port
+            wait_for_motd: Defaulted True.
+        """
         self.__read_queue: Queue[Message] = Queue(maxsize=READ_QUEUE_MAX_SIZE)
-        self.__write_queue: Dict[str, Queue[Message]] = {}
+        self.__write_queues: Dict[str, Queue[Message]] = {}
         self.__socket_reader = threading.Thread(target=self.__socket_read_loop)
         self.__socket_writer = threading.Thread(target=self.__socket_write_loop)
         self.__socket_open = False
         self.__cfg: ClientConfig = ClientConfig(nickname, password, server_url, port)
         self.irc_client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.write_lock: bool = True
+        self.write_lock: bool = wait_for_motd
 
     @property
     def connected(self) -> bool:
@@ -68,9 +81,9 @@ class IRCClient:
         return self.__read_queue.empty()
 
     def connect(self) -> None:
-        """ Connects to IRC and starts read/write threads. Blocking until complete """
+        """ Connects to IRC and starts read/write threads. Does not hold event loop """
         self.__create_socket()
-        self.__write_queue["SYS"] = Queue(WRITE_QUEUE_MAX_SIZE)
+        self.__write_queues["SYS"] = Queue(WRITE_QUEUE_MAX_SIZE)
         if self.connected:
             self.__socket_reader.start()
             self.__socket_writer.start()
@@ -86,7 +99,8 @@ class IRCClient:
 
     def __authenticate(self) -> None:
         """ Queue authentication commands """
-        self.send_to_server(f"PASS {self.__cfg.password}")
+        if self.__cfg.password:
+            self.send_to_server(f"PASS {self.__cfg.password}")
         self.send_to_server(f"NICK {self.__cfg.nickname}")
         self.send_to_server(
             f"USER {self.__cfg.nickname} {self.__cfg.nickname} {self.__cfg.nickname}"
@@ -100,6 +114,7 @@ class IRCClient:
         except OSError as err:
             self.logger.error(err)
         finally:
+            self.logger.info("Waiting for threads to close, ~15 seconds...")
             self.__socket_open = False
             self.__socket_reader.join()
             self.__socket_writer.join()
@@ -107,16 +122,23 @@ class IRCClient:
     def send_to_server(self, message: str) -> None:
         """ Sends a message to the server, returns queued message """
         # Adds message to write SYS write queue, always active
-        self.__write_queue["SYS"].put(Message.from_string(message))
+        self.__write_queues["SYS"].put(Message.from_string(message))
+
+    def send_to_channel(self, channel: str, message: str) -> None:
+        """ Sends a message to the specific channel queue """
+        if channel not in self.__write_queues:
+            self.logger.error("Not in channel: %s", channel)
+        msg = Message.from_string(f"PRIVMSG {channel} :{message}")
+        self.__write_queues[channel].put(msg)
 
     def join_channel(self, channel_name: str) -> None:
         """ Join channel """
-        if channel_name in self.__write_queue:
+        if channel_name in self.__write_queues:
             self.logger.error("Already in channel: %s", channel_name)
         else:
-            self.__write_queue[channel_name] = Queue(WRITE_QUEUE_MAX_SIZE)
+            self.__write_queues[channel_name] = Queue(WRITE_QUEUE_MAX_SIZE)
             msg = Message.from_string(f"JOIN {channel_name}")
-            self.__write_queue[channel_name].put(msg)
+            self.__write_queues[channel_name].put(msg)
 
     def __socket_read_loop(self, read_size: int = 512) -> None:
         """ Reads open socket, drops messages in queue, exits on socket close """
@@ -145,7 +167,7 @@ class IRCClient:
         """ Writes queue'ed messages to open socket, exits on socket close """
         self.logger.debug("Enter socket write loop.")
         while self.__socket_open:
-            for queue_name, writequeue in self.__write_queue.items():
+            for queue_name, writequeue in self.__write_queues.items():
                 if queue_name != "SYS" and self.write_lock:
                     continue
                 try:
@@ -175,6 +197,7 @@ class IRCClient:
             except (ConnectionResetError, OSError) as err:
                 self.logger.error("Send failed: %s", err)
                 self.__socket_open = False
+        self.logger.debug("Sent %s bytes.", len(message))
 
     def __read(self, read_size: int) -> bytes:
         """ Reads raw btyes, retries if blocked """

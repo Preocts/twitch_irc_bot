@@ -29,7 +29,6 @@ class IRCBot:
     def run_bot(self) -> None:
         """ This starts a bot, is blocking """
         self.irc_client.join_channel("#travelcast_bot")
-        self.irc_client.join_channel("#bobross")
         self.irc_client.start(self.message_handler)
         self.irc_client.disconnect()
 
@@ -37,6 +36,8 @@ class IRCBot:
         """ Handle messages as they happen in IRC """
         print(f">>> {message.message}")
         if message.command == "PRIVMSG" and "travelcast_bot" in message.params:
+            if message.content == "!start":
+                self.irc_client.send_to_channel("#travelcast_bot", "Starting now!")
             if message.content == "!exit":
                 print("Shutdown!")
                 self.irc_client.disconnect()
@@ -49,5 +50,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level="DEBUG")
+    logging.basicConfig(level="INFO")
     main()
