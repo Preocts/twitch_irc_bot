@@ -13,6 +13,8 @@ import threading
 from queue import Queue
 from queue import Empty
 from typing import Dict
+from typing import Optional
+from typing import NamedTuple
 
 from src.model.message import Message
 
@@ -28,6 +30,15 @@ WRITE_THROTTLE_MSG_COUNT = 20
 WRITE_THROTTLE_SEC_SPAN = 30
 
 
+class ClientConfig(NamedTuple):
+    """ Config and secrets for IRC Client """
+
+    nickname: str
+    password: Optional[str]
+    url: str
+    port: int
+
+
 class IRCClient:
     """ Connection layer to IRC """
 
@@ -36,18 +47,13 @@ class IRCClient:
     def __init__(
         self, nickname: str, password: str, server_url: str, port: int
     ) -> None:
-        """ IRC connection """
+        """ Create an IRC Client object """
         self.__read_queue: Queue[Message] = Queue(maxsize=READ_QUEUE_MAX_SIZE)
         self.__write_queue: Dict[str, Queue[Message]] = {}
         self.__socket_reader = threading.Thread(target=self.__socket_read_loop)
         self.__socket_writer = threading.Thread(target=self.__socket_write_loop)
         self.__socket_open = False
-        self.__cfg = {
-            "nick": nickname,
-            "password": password,
-            "url": server_url,
-            "port": port,
-        }
+        self.__cfg: ClientConfig = ClientConfig(nickname, password, server_url, port)
         self.irc_client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.write_lock: bool = True
 
@@ -73,17 +79,17 @@ class IRCClient:
     def __create_socket(self) -> None:
         """ Connect socket """
         self.logger.info("Connecting to IRC server...")
-        self.irc_client.connect((self.__cfg["url"], self.__cfg["port"]))
+        self.irc_client.connect((self.__cfg.url, self.__cfg.port))
         self.irc_client.setblocking(False)
         self.logger.info("Connection established.")
         self.__socket_open = True
 
     def __authenticate(self) -> None:
         """ Queue authentication commands """
-        self.send_to_server(f"PASS {self.__cfg['password']}")
-        self.send_to_server(f"NICK {self.__cfg['nick']}")
+        self.send_to_server(f"PASS {self.__cfg.password}")
+        self.send_to_server(f"NICK {self.__cfg.nickname}")
         self.send_to_server(
-            f"USER {self.__cfg['nick']} {self.__cfg['nick']} {self.__cfg['nick']}"
+            f"USER {self.__cfg.nickname} {self.__cfg.nickname} {self.__cfg.nickname}"
         )
 
     def disconnect(self) -> None:
