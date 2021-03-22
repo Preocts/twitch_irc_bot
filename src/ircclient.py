@@ -30,17 +30,16 @@ WRITE_THROTTLE_MSG_COUNT = 20
 WRITE_THROTTLE_SEC_SPAN = 30
 
 
-class ClientConfig(NamedTuple):
-    """ Config and secrets for IRC Client """
-
-    nickname: str
-    password: Optional[str]
-    url: str
-    port: int
-
-
 class IRCClient:
     """ Connection layer to IRC """
+
+    class ClientConfig(NamedTuple):
+        """ Config and secrets for IRC Client """
+
+        nickname: str
+        password: Optional[str]
+        url: str
+        port: int
 
     logger = logging.getLogger(__name__)
 
@@ -66,7 +65,7 @@ class IRCClient:
         self.__socket_reader = threading.Thread(target=self.__socket_read_loop)
         self.__socket_writer = threading.Thread(target=self.__socket_write_loop)
         self.__socket_open = False
-        self.__cfg: ClientConfig = ClientConfig(nickname, password, server_url, port)
+        self.__cfg = self.ClientConfig(nickname, password, server_url, port)
         self.irc_client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.write_lock: bool = wait_for_motd
 
@@ -150,18 +149,36 @@ class IRCClient:
                 continue
 
             try:
-                read_seg = self.__read(read_size)
-            except OSError as err:
-                self.logger.error("Read error: %s, %s", err, self.__socket_open)
-                continue
+                read_segment = self.irc_client.recv(read_size)
+                self.logger.debug("Read %s bytes", len(read_segment))
+            except (ConnectionResetError, OSError) as err:
+                self.logger.error("Send failed: %s", err)
+                self.__socket_open = False
+                break
 
-            if read_seg:
-                read_seg = remaining_seg + read_seg
-                remaining_seg = self.__parse_lines_to_queue(read_seg)
+            if read_segment:
+                read_segment = remaining_seg + read_segment
+                remaining_seg = self.__parse_read_segment(read_segment)
             else:
                 self.logger.warning("Read: Socket is closed!")
                 self.__socket_open = False
         self.logger.debug("Exit socket read loop.")
+
+    def __parse_read_segment(self, read_segment: bytes) -> bytes:
+        """ Routes system commands and add lines to read queue, returns overflow """
+        message_lines = read_segment.decode("UTF-8").split("\r\n")
+        overflow = message_lines.pop() if not message_lines[-1].endswith("\r\n") else ""
+
+        for line in message_lines:
+            if line:
+                msg = Message.from_string(line)
+                if msg.command == "PING":
+                    self.logger.info("PING? PONG!")
+                    self.send_to_server(f"PONG :{msg.content}")
+                if self.write_lock:
+                    self.write_lock = msg.command == "376"
+                self.__read_queue.put(msg)
+        return overflow.encode("UTF-8")
 
     def __socket_write_loop(self) -> None:
         """ Writes queue'ed messages to open socket, exits on socket close """
@@ -198,37 +215,6 @@ class IRCClient:
                 self.logger.error("Send failed: %s", err)
                 self.__socket_open = False
         self.logger.debug("Sent %s bytes.", len(message))
-
-    def __read(self, read_size: int) -> bytes:
-        """ Reads raw btyes, retries if blocked """
-        while True:
-            try:
-                read_line = self.irc_client.recv(read_size)
-                self.logger.debug("Read %s bytes", len(read_line))
-                return read_line
-            except BlockingIOError:
-                self.logger.debug("Read blocked, retry...")
-            except ConnectionResetError as err:
-                self.logger.error("Send failed: %s", err)
-                self.__socket_open = False
-                return b""
-
-    def __parse_lines_to_queue(self, read_seg: bytes) -> bytes:
-        """ Add lines to read queue, returns overflow """
-        message_string = read_seg.decode("UTF-8")
-        message_lines = message_string.split("\n")
-        overflow = message_lines.pop() if not message_string.endswith("\r\n") else ""
-
-        for line in message_lines:
-            if line:
-                msg = Message.from_string(line)
-                if msg.command == "PING":
-                    self.logger.info("PING? PONG!")
-                    self.send_to_server(f"PONG :{msg.content}")
-                if self.write_lock:
-                    self.write_lock = msg.command == "376"
-                self.__read_queue.put(msg)
-        return overflow.encode("UTF-8")
 
     def start(self, *args) -> None:
         """ Main process loop? """
