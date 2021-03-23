@@ -7,17 +7,29 @@ Author: Preocts <preocts@preocts.com>
 import datetime
 from typing import List
 from typing import Dict
+from typing import Optional
 
 
 class DecayingCounter:
     """ Tracks number of events within a given life_span of seconds """
 
-    __slots__ = ["life_span", "__groups"]
+    __slots__ = ["life_span", "__groups", "__max"]
 
-    def __init__(self, life_span: int) -> None:
+    def __init__(self, life_span: int, max_count: Optional[int] = None) -> None:
         """ Set life_span to the length of time, in seconds, items live in groups """
+        self.__max = max_count
         self.life_span = datetime.timedelta(seconds=life_span)
         self.__groups: Dict[str, List[datetime.datetime]] = {}
+
+    def inc_to_max(self, group_name: str) -> bool:
+        """ Increments group by 1 and return true. If max is reached, returns false """
+        if self.__max is None:
+            raise Exception("Using 'inc_to_max' with no max set.")
+        if self.count(group_name) < self.__max:
+            self.inc(group_name)
+            return True
+        else:
+            return False
 
     def inc(self, group_name: str) -> int:
         """ Increment a group by 1 (one) returns group size, create group if needed """

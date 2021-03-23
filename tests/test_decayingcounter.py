@@ -23,6 +23,7 @@ class TestDecayingCounter:
     """ Test suite """
 
     groups = DecayingCounter(2)
+    groups_with_max = DecayingCounter(2, 10)
 
     def test_two_second_check(self) -> None:
         """ Ensures we are decaying """
@@ -42,3 +43,14 @@ class TestDecayingCounter:
                 assert self.groups.inc(random_string()) >= 1
             else:
                 assert self.groups.count(random_string()) >= 0
+
+    def test_max_count(self) -> None:
+        """ Hold 10 items and only 10 items """
+        for _ in range(10):
+            assert self.groups_with_max.inc_to_max("max_group")
+
+        assert not self.groups_with_max.inc_to_max("max_group")
+
+        for _ in range(1_000):
+            self.groups_with_max.inc_to_max("group_limit")
+        assert self.groups_with_max.count("group_limit") == 10
