@@ -28,13 +28,12 @@ class IRCBot:
 
     def run_bot(self) -> None:
         """ This starts a bot, is blocking """
-        self.irc_client.join_channel("#travelcast_bot")
         self.irc_client.start(self.message_handler)
         self.irc_client.disconnect()
 
     def message_handler(self, message: Message) -> None:
         """ Handle messages as they happen in IRC """
-        print(f">>> {message.message}")
+        # print(f">>> {message.message}")
         if message.command == "PRIVMSG" and "travelcast_bot" in message.params:
             if message.content == "!start":
                 self.irc_client.send_to_channel("#travelcast_bot", "Starting now!")

@@ -58,7 +58,7 @@ class IRCChannel:
             self.__endofnames = True
 
         # TODO (preocts) Log/write message by channel name
-        print(f"{self.name}>>> {message}")
+        print(f"{self.name}>>> {message.message}")
 
     def __joined(self) -> bool:
         """ Returns true if joined to channel """
