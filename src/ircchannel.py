@@ -12,36 +12,38 @@ import logging
 from src.model.message import Message
 from src.decayingcounter import DecayingCounter
 
-WRITE_THROTTLE_MSG_COUNT = 20
-WRITE_THROTTLE_SEC_SPAN = 30
-
 
 class IRCChannel:
     """ An IRC Channel for use in the IRCClient class """
 
     logger = logging.getLogger(__name__)
 
-    def __init__(self, channel_name: str) -> None:
+    def __init__(
+        self,
+        channel_name: str,
+        throttle_count: int,
+        throttle_time: int,
+        join_override: bool = False,
+    ) -> None:
         """ Provide the name of the channel """
         self.name = channel_name
         self.write_queue: queue.Queue[Message] = queue.Queue()
-        self.write_locked: bool = True
-        self.__namreply: bool = False
-        self.__endofnames: bool = False
+        self.throttle: DecayingCounter = DecayingCounter(throttle_time, throttle_count)
 
-        self.throttle_count: int = WRITE_THROTTLE_MSG_COUNT
-        self.throttle: DecayingCounter = DecayingCounter(WRITE_THROTTLE_SEC_SPAN)
+        self.__namreply: bool = join_override
+        self.__endofnames: bool = join_override
 
-    def queue_write(self, message: Message) -> None:
+    def send(self, message: Message) -> None:
         """ Add a message to the write queue """
-        if not self.__joined or self.write_locked:
+        if not self.__joined:
             return
-        if self.throttle.inc(self.name) >= self.throttle_count:
+        if self.throttle.inc_to_max(self.name):
+            # TODO (preocts) Handle full queue
+            self.write_queue.put_nowait(message)
+        else:
             self.logger.warning(
                 "Flood control on %s, dropping '%s'", self.name, message
             )
-            return
-        self.write_queue.put(message, block=False, timeout=0.25)
 
     def handle_message(self, message: Message) -> None:
         """Handles incoming message directed toward channel
@@ -56,6 +58,7 @@ class IRCChannel:
             self.__endofnames = True
 
         # TODO (preocts) Log/write message by channel name
+        print(f"{self.name}>>> {message}")
 
     def __joined(self) -> bool:
         """ Returns true if joined to channel """
